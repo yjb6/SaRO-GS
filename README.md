@@ -1,5 +1,3 @@
-render:  python test.py --configpath configs/n3d_lite/flame_s.json --model_path log/flame_steak/notschedule_scalereg8e-6_prealxyzf5k_d5k_nosintf5k_hexdim32/ 
-
 # SaRO-GS:4D Gaussian Splatting with Scale-aware Residual Field and Adaptive Optimization for Real-time Rendering of Temporally Complex Dynamic Scenes
 Jinbo Yan, Rui Peng, Luyang Tang, Ronggang Wang<br>
 | [Webpage](https://yjb6.github.io/SaRO-GS.github.io/)]
