@@ -17,6 +17,7 @@ To test the model, use the following command:
 
     python test.py --configpath configs/n3d_lite/flame_s.json --model_path flame_steak/ --checkpoint flame_steak/ckpt_best.ply --require_segment
 ### Pretrained Weights
+You can download the pre-trained weights from [here](https://drive.google.com/drive/folders/1WWGftpqdLMPZ6-i-uRhmTCMgI-x2NO9d?usp=drive_link), and then place both ckpt_best.ply and ckpt_best.pth under the flame_steak directory.
 We will be releasing pretrained weights for the model in stages. Please check back regularly for updates.
 
 ## Training
