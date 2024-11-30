@@ -1,0 +1,20 @@
+{
+  "resolution": 2,
+  "model": "xyz_mlp",
+  "scaling_lr": 0.003,
+  "preprocesspoints": 0,
+  "test_iteration": 30000,
+  "densify": 4,
+  "duration": 300,
+  "rdpip": "train_ours_xyz_mlp",
+  "rgbfunction": "sandwich",
+  "loader": "colmap4dgs",
+  "densify_until_iter": 15000,
+  "desicnt": -1,
+  "emsstart": 30001,
+  "use_weight_decay": true,
+  "densify_from_iter" :500,
+  "opacity_reset_interval": 3000,
+  "mlp_lr_init" : 6e-4,
+  "mlp_lr": 1.6e-2
+}

@@ -1,0 +1,37 @@
+{
+  "resolution": 2,
+  "model": "flow_mlp_hexplane_basemlp",
+  "scaling_lr": 0.003,
+  "preprocesspoints": 3,
+  "test_iteration": 15000,
+  "densify": 2,
+  "duration": 300,
+  "rdpip": "train_ours_flow_mlp_opacity",
+  "rgbfunction": "sandwich",
+  "loader": "colmap",
+  "densify_until_iter": 15000,
+  "desicnt": -1,
+  "emsstart": 30001,
+  "use_weight_decay": true,
+  "densify_from_iter" :500,
+
+  "deform_feature_lr":1.6e-3,
+  "deform_feature_lr_final":1.6e-3,
+
+  "mlp_lr":1.6e-4,
+  "mlp_lr_final":1.6e-7,
+
+  "hexplane_lr":3.2e-3,
+  "hexplane_lr_final":3.2e-6,
+
+  "reg":15,
+  "regl":0.005,
+
+  "kplanes_config" :{
+    "grid_dimensions": 2,
+    "input_coordinate_dim": 4,
+    "output_coordinate_dim": 16,
+    "resolution": [64, 64, 64, 150]
+  },
+  "multires":[1,2]
+}

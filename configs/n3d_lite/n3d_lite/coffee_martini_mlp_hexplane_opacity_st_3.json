@@ -1,0 +1,67 @@
+{
+  "resolution": 2,
+  "dataset": "coffee",
+  "source_path": "../datasets/neural_3D/coffee_martini/colmap_0/",
+  "model": "flow_mlp_hexplane_opacity_st_3",
+  "scaling_lr": 0.003,
+
+  "preprocesspoints": 3,
+  "desicnt": -1,
+
+  "test_iteration": 20001,
+  "densify": 4,
+  "duration": 300,
+  "rdpip": "train_ours_flow_mlp_opacity",
+  "rgbfunction": "sandwich",
+  "loader": "colmap",
+  "densify_until_iter": 15000,
+  "emsstart": 40001,
+  "use_weight_decay": true,
+  "densify_from_iter" :100,
+  "densification_interval" : 100,
+
+  "deform_feature_lr":1.6e-3,
+  "deform_feature_lr_final":1.6e-3,
+
+  "mlp_lr":1.6e-4,
+  "mlp_lr_final":1.6e-7,
+
+  "trbfs_lr":6e-2,
+  "hexplane_lr":3.2e-3,
+  "hexplane_lr_final":3.2e-6,
+
+  "kplanes_config" :{
+    "grid_dimensions": 2,
+    "input_coordinate_dim": 4,
+    "output_coordinate_dim": 16,
+    "resolution": [256, 256, 256, 512]
+  },
+  "multires":[1],
+
+  "fine_kplanes_config" :{
+    "grid_dimensions": 2,
+    "input_coordinate_dim": 4,
+    "output_coordinate_dim": 16,
+    "resolution": [128, 128, 128, 128]
+  },
+  "fine_multires":[1],
+
+  "valloader": "colmapvalid",
+  "use_loader":true,
+  "batch":4,
+  "sametime_batch":false,
+
+  "lambda_dtstd" :1e-4,
+  "lambda_dl1_opacity" : 0,
+  "lambda_dscale_entropy":0,
+  "iterations":30000,
+  "dsh":true,
+  "use_shs":true,
+  "min_intergral":0.0008,
+  
+  "opacity_reset_interval":3000,
+  "coarse_iteration":250000,
+  "coarse_opacity_reset_interval":0,
+  "pure_static":120010,
+  "enable_coarse2fine":false
+}

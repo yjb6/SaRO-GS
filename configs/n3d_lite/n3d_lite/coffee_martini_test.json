@@ -1,0 +1,20 @@
+{
+  "resolution": 2,
+  "model": "flow_full",
+  "scaling_lr": 0.003,
+  "preprocesspoints": 0,
+  "test_iteration": 25000,
+  "densify": 2,
+  "duration": 300,
+  "rdpip": "train_ours_flow_full",
+  "rgbfunction": "sandwich",
+  "loader": "colmap4dgs",
+  "densify_until_iter": 15000,
+  "desicnt": -1,
+  "emsstart": 30001,
+  "reg": 14,
+  "use_weight_decay": true,
+  "densify_from_iter" :500,
+  "max_points_num": 600000,
+  "color_order": 0
+}

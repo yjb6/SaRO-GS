@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 import torch 
-from thirdparty.gaussian_splatting.utils.graphics_utils import BasicPointCloud
+from utils.graphics_utils import BasicPointCloud
 import numpy as np
 from simple_knn._C import distCUDA2
 from mmcv.ops import knn

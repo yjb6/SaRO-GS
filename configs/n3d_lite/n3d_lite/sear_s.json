@@ -1,0 +1,77 @@
+{
+    "resolution": 2,
+    "dataset": "sear_steak",
+    "source_path": "../datasets/neural_3D/sear_steak/colmap_0/",
+    "model": "flow_mlp_hexplane_opacity_st_2",
+    "scaling_lr": 0.003,
+  
+    "preprocesspoints": 31,
+    "desicnt": -1,
+  
+    "test_iteration": 20001,
+    "densify": 2,
+    "duration": 300,
+    "rdpip": "train_ours_flow_mlp_opacity",
+    "rgbfunction": "sandwich",
+    "loader": "colmap",
+    "densify_until_iter": 4000,
+    "emsstart": 40001,
+    "use_weight_decay": true,
+    "densify_from_iter" :500,
+    "densification_interval" : 100,
+  
+    "deform_feature_lr":1.6e-3,
+    "deform_feature_lr_final":1.6e-3,
+  
+    "mlp_lr":1.6e-4,
+    "mlp_lr_final":1.6e-7,
+  
+    "trbfs_lr":6e-2,
+    "hexplane_lr":3.2e-3,
+    "hexplane_lr_final":3.2e-6,
+  
+    "kplanes_config" :{
+      "grid_dimensions": 2,
+      "input_coordinate_dim": 4,
+      "output_coordinate_dim": 32,
+      "resolution": [512, 512, 512, 256]
+    },
+    "multires":[1],
+    "valloader": "colmapvalid",
+    "use_loader":true,
+    "batch":4,
+    "sametime_batch":false,
+  
+    "lambda_dtstd" :1e-4,
+    "lambda_dl1_opacity" : 0,
+    "lambda_dscale_entropy":0,
+    "lambda_dplanetv":0,
+    "lambda_dtime_smooth":0,
+    "lambda_dscale_reg":8e-6,
+    "lambda_dshs_reg":0,
+    "lambda_dmotion_reg":0,
+
+    "iterations":30000,
+    "dsh":true,
+    "use_shs":true,
+    "min_intergral":0.0016,
+    "dscale":false,
+    "enable_scale_sum":false,
+    "scale_rot":true,
+
+    "scale_reg":true,
+    "shs_reg":false,
+    "motion_reg":false,
+
+    "onemlp":false,
+
+    "trbfc_lr":1e-4,
+    "sigmoid_tcenter":false,
+    "planemodel":"hexplane_mip",
+
+    "use_intergral_afterdensify":false
+ 
+
+  
+  
+  }

@@ -1,0 +1,19 @@
+{
+  "resolution": 2,
+  "model": "flow_mlp",
+  "scaling_lr": 0.003,
+  "preprocesspoints": 0,
+  "test_iteration": 30000,
+  "densify": 2,
+  "duration": 300,
+  "rdpip": "train_ours_flow_mlp",
+  "rgbfunction": "sandwich",
+  "loader": "colmap4dgs",
+  "densify_until_iter": 15000,
+  "desicnt": -1,
+  "emsstart": 30001,
+  "use_weight_decay": true,
+  "densify_from_iter" :500,
+  "deform_feature_lr":1.6e-3,
+  "mlp_lr":1.6e-3
+}
