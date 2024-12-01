@@ -90,7 +90,7 @@ def train_render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Te
     # print(viewpoint_camera.rays.shape)
     if stage == "dynamatic":
         means3D,rotations,scales,opacity,shs = pc.get_deformation(viewpoint_camera.timestamp)
-        select_mask = None
+        # select_mask = None
         # print("dyna")
         # means3D,rotations,scales,opacity,shs,_,_ = pc.get_deformation_fast(viewpoint_camera.timestamp)
         
@@ -133,8 +133,8 @@ def train_render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Te
             # "opacity": opacity,
             #  "depth": depth
             }
-    if select_mask is not None:
-        return_dict["select_mask"] = select_mask
+    # if select_mask is not None:
+    #     return_dict["select_mask"] = select_mask
     return return_dict
 
 def test_render(viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, require_segment = False):
@@ -187,7 +187,7 @@ def test_render(viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, r
     colors_precomp = None
     startime = time.time()
 
-    means3D,rotations,scales,opacity,shs,_ = pc.get_deformation_eval(viewpoint_camera.timestamp)
+    means3D,rotations,scales,opacity,shs = pc.get_deformation_eval(viewpoint_camera.timestamp)
     rendered_image, radii,depth = rasterizer(
         means3D = means3D,
         means2D = means2D,
@@ -212,7 +212,7 @@ def test_render(viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, r
     if require_segment:
         #The time taken to render segments should not be recorded in the rendering time.
         means3D,rotations,scales,opacity,shs,_ = pc.get_deformation(viewpoint_camera.timestamp)
-        colors_precomp = pc.get_trbfscale.detach().expand(-1,3) 
+        colors_precomp = pc.get_lifespan.detach().expand(-1,3) 
         shs = None
         rendered_image, radii,depth = rasterizer(
         means3D = means3D,

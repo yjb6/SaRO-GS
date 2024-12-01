@@ -22,7 +22,7 @@
 
 #---
 
-# This code is based on the work of [OPPO] and has been modified by [jinboyan].
+# This code is based on the work of OPPO and has been modified by jinboyan.
 
 import os
 import torch
@@ -46,9 +46,8 @@ import matplotlib.pyplot as plt
 from utils.system_utils import mkdir_p
 from utils.loss_utils import l1_loss, ssim, l2_loss, rel_loss,msssim
 from utils.image_utils import psnr,easy_cmap
-from helper_train import getrenderpip, getmodel, getloss, controlgaussians, reloadhelper, trbfunction
+from helper_train import getloss, controlgaussians, trbfunction
 from scene import Scene
-from scene.dataset import IdxDataset,SameTimeDataLoader,KeyIndexDataLoader,TimeBatchDataset
 from argparse import Namespace
 from helper3dg import getparser, getrenderparts
 from renderer import train_render as render
@@ -118,8 +117,6 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
             train_camname_dict[cam.image_name].append(idx)
 
         traincam_dataset = scene.getTrainCameras()
-
-
         loader = DataLoader(traincam_dataset, batch_size=opt.batch,shuffle=True,num_workers=8,collate_fn=list)
         test_loader = DataLoader(scene.getTestCameras(), batch_size=1,shuffle=False,num_workers=8,collate_fn=lambda x: x)
 
@@ -159,10 +156,10 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
             iteration +=1
             if iteration > opt.iterations:
                 break
-            if opt.coarse_iteration >=0 and iteration > opt.coarse_iteration:
-                if not gaussians.is_fine:
-                    gaussians.coarse2fine()
-                    opt.lambda_dscale_entropy = 0
+            # if opt.coarse_iteration >=0 and iteration > opt.coarse_iteration:
+            #     if not gaussians.is_fine:
+            #         gaussians.coarse2fine()
+            #         opt.lambda_dscale_entropy = 0
             if iteration > opt.static_iteration:
                 stage = "dynamatic"
                 if  not gaussians.is_dynamatic:
@@ -193,10 +190,8 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
             
             if (iteration - 1) == debug_from:
                 pipe.debug = True
-            # if gaussians.rgbdecoder is not None:
-            #     gaussians.rgbdecoder.train()
 
-            if opt.batch > 1 and opt.multiview:
+            if opt.batch > 1:
                 gaussians.zero_gradient_cache()
 
                 batch_point_grad = []
@@ -215,7 +210,7 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                     gt_image = viewpoint_cam.original_image.float().cuda()
 
                     Ll1 = l1_loss(image, gt_image)
-                    loss,loss_dict = getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii, viewpoint_cam.timestamp,iteration,lambda_all)
+                    loss,loss_dict = getloss(opt, Ll1, ssim, image, gt_image, gaussians,lambda_all)
 
                     loss.backward() #这里loss一定要在这里backward，否则累计的计算图会爆显存
                     batch_point_grad.append(torch.norm(viewspace_point_tensor.grad[:,:2], dim=-1))
@@ -234,36 +229,13 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                 iter_end.record()
                 gaussians.set_batch_gradient(opt.batch,stage)
 
-            elif opt.batch ==1 and not opt.multiview:
-                gaussians.zero_gradient_cache()
-                if stage == "static":
-                    viewpoint_cam = traincameralist[0]
-                else:
-                    if not traincameralist:
-                        traincameralist = scene.getTrainCameras().copy()
-                    viewpoint_cam = traincameralist.pop(randint(0, len(traincameralist)-1))
-                render_pkg = render(viewpoint_cam, gaussians, pipe, background,  override_color=None,  basicfunction=rbfbasefunction, GRsetting=GRsetting, GRzer=GRzer,stage=stage)
-                image, viewspace_point_tensor, visibility_filter, radii = getrenderparts(render_pkg) 
-                # print(viewspace_point_tensor,visibility_filter)
-                gt_image = viewpoint_cam.original_image.float().cuda()
-                if opt.reg == 2:
-                    Ll1 = l2_loss(image, gt_image)
-                    loss = Ll1
-                elif opt.reg == 3:
-                    Ll1 = rel_loss(image, gt_image)
-                    loss = Ll1
-                else:
-                    Ll1 = l1_loss(image, gt_image)
-                    loss = getloss(opt, Ll1, ssim, image, gt_image, gaussians, radii,viewpoint_cam.timestamp,iteration)
-                loss.backward()
-                # print(viewspace_point_tensor.grad,visibility_filter)
-                # gaussians.cache_gradient()
-                # gaussians.optimizer.zero_grad(set_to_none = True)# 
             else:
                 raise NotImplementedError("Batch size 1 is not supported")
+
             if dataset.use_shs :
                 if iteration % 1000 == 0:
                     gaussians.oneupSHdegree()
+
             with torch.no_grad():
                 # Progress bar
                 ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
@@ -283,9 +255,6 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                             ema_loss = vars()[f"ema_{lambda_name.replace('lambda_', '')}_for_log"]
                             postfix[lambda_name.replace("lambda_", "L")] = f"{ema_loss:.{4}f}"
                     progress_bar.set_postfix(postfix)
-
-
-
                     progress_bar.update(10)
                 
                 if iteration == opt.iterations:
@@ -342,13 +311,13 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
 
                         batch_t_grad = None
 
-                    # print(gaussians.max_radii2D.shape,visibility_filter.shape, radii.shape)
                     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter]) #更新gs在2d情况下的最大半径,这个要写成逐K的
                     if opt.batch>1:
                         gaussians.add_densification_stats_grad(batch_viewspace_point_grad, visibility_filter,batch_t_grad) #增加累计梯度
                     else:
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter) #增加累计梯度
-                flag = controlgaussians(opt, gaussians, densify, iteration, scene,  visibility_filter, radii, viewspace_point_tensor, flag,  traincamerawithdistance=None, maxbounds=maxbounds,minbounds=minbounds)
+                
+                controlgaussians(opt, gaussians, densify, iteration, scene)
               
                 # Optimizer step
                 if iteration < opt.iterations:
@@ -551,15 +520,17 @@ def training_report(wd_writer, test_loader,iteration, model_path,train_camname_d
     torch.cuda.empty_cache()
     return psnr_test_iter,history_data
 if __name__ == "__main__":
-    # print(123)
     print("current pid:",os.getpid())
     args, lp_extract, op_extract, pp_extract = getparser()
     print("start_train")
+
     torch.manual_seed(666)
     np.random.seed(666)
+
     if args.model_path == "":
         args.model_path = os.path.join("log",os.path.join(args.dataset, args.exp_name ))
-    print(args.model_path)
+    print("model_path:", args.model_path)
+
     wandb_run = None
     if not args.no_wandb:
         tags = ['test']

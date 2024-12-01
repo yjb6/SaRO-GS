@@ -1,7 +1,7 @@
 {
     "resolution": 2,
     "dataset": "flame_steak",
-    "source_path": "../datasets/neural_3D/flame_steak/colmap_0/",
+    "source_path": "/workspace/40124/yjb/datasets/neural_3D/flame_steak_colmap/colmap_0/",
     "model": "flow_mlp_hexplane_opacity_st_2",
     "scaling_lr": 0.003,
   
@@ -67,7 +67,7 @@
 
     "trbfc_lr":1e-4,
     "sigmoid_tcenter":false,
-    "planemodel":"hexplane_mip"
+    "planemodel":"scale_aware"
 
  
 

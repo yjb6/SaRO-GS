@@ -18,15 +18,15 @@ from arguments import ModelParams
 from PIL import Image 
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON, cameraList_from_camInfosv2, cameraList_from_camInfosv2nogt
 from utils.system_utils import mkdir_p
-from helper_train import recordpointshelper, getfisheyemapper
+from helper_train import recordpointshelper
 import torch 
-from scene.dataset import GSdataset,CameraDataset
+from scene.dataset import CameraDataset
 class Scene:
 
     # gaussians : GaussianModel
 
     def __init__(self, args : ModelParams, gaussians, load_iteration=None, shuffle=True, resolution_scales=[1.0], multiview=False,duration=50.0, loader="colmap"):
-        """b
+        """
         :param path: Path to colmap scene main folder.
         """
         self.args=args
@@ -78,14 +78,10 @@ class Scene:
 
         if shuffle:
             random.shuffle(self.scene_info.train_cameras)  # Multi-res consistent random shuffling
-            # random.shuffle(self.scene_info.test_cameras)  # Multi-res consistent random shuffling,对test view，需要其按时间排练，不shuffle
 
  
-
-
-        self.cameras_extent = self.scene_info.nerf_normalization["radius"] #获取场景半径
-        print("场景半径",self.cameras_extent)
-
+        self.cameras_extent = self.scene_info.nerf_normalization["radius"] 
+        print("radius:",self.cameras_extent)
 
 
         for resolution_scale in resolution_scales:
@@ -132,13 +128,13 @@ class Scene:
         mkdir_p(os.path.dirname(save_path))
         self.gaussians.save_ply(save_path)
 
-    # recordpointshelper(model_path, numpoints, iteration, string):
     def recordpoints(self, iteration, string):
         txtpath = os.path.join(self.model_path, "exp_log.txt")
         numpoints = self.gaussians._xyz.shape[0]
         recordpointshelper(self.model_path, numpoints, iteration, string)
 
     def getTrainCameras(self, scale=1.0):
+        # 因为图片数量过多，不能一次加载到cuda或cpu memory中，
         if self.args.use_loader:
             use_background = False
             if self.loader in ["blender","blendervalid"]:

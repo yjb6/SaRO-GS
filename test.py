@@ -35,7 +35,7 @@ import sys
 sys.path.append("./thirdparty/gaussian_splatting")
 
 import torch
-from thirdparty.gaussian_splatting.scene import Scene
+from scene import Scene
 import os
 from tqdm import tqdm
 from os import makedirs
@@ -46,18 +46,17 @@ import numpy as np
 import warnings
 import json 
 import matplotlib.pyplot as plt
-import open3d as o3d
 from PIL import Image
 
-from thirdparty.gaussian_splatting.lpipsPyTorch import lpips
+from lpipsPyTorch import lpips
 
-from thirdparty.gaussian_splatting.utils.loss_utils import ssim
-from thirdparty.gaussian_splatting.utils.image_utils import psnr
-from thirdparty.gaussian_splatting.helper3dg import gettestparse
+from utils.loss_utils import ssim
+from utils.image_utils import psnr
+from helper3dg import gettestparse
 from skimage.metrics import structural_similarity as sk_ssim
-from thirdparty.gaussian_splatting.arguments import ModelParams, PipelineParams
-from thirdparty.gaussian_splatting.renderer import test_render
-from thirdparty.gaussian_splatting.scene.saro_gaussian import GaussianModel
+from arguments import ModelParams, PipelineParams
+from renderer import test_render
+from scene.saro_gaussian import GaussianModel
 warnings.filterwarnings("ignore")
 
 # modified from https://github.com/graphdeco-inria/gaussian-splatting/blob/main/render.py and https://github.com/graphdeco-inria/gaussian-splatting/blob/main/metrics.py
@@ -195,7 +194,7 @@ def run_test(dataset : ModelParams, ckpt, pipeline : PipelineParams, skip_train 
 
         if dataset.color_order >0:
             gaussians.color_order = dataset.color_order
-            
+        # dataset.use_loader = False
         scene = Scene(dataset, gaussians, shuffle=False, multiview=False, duration=duration, loader=loader)
 
         background = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda") # use black background

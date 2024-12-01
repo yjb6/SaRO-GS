@@ -1,7 +1,7 @@
 {
   "resolution": 2,
   "dataset": "hook",
-  "source_path": "../datasets/dnerf/hook/",
+  "source_path": "/workspace/40124/yjb/datasets/dnerf/hook/",
   "model": "flow_mlp_hexplane_opacity_st_2",
   "scaling_lr": 0.003,
 

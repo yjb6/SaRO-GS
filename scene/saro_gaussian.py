@@ -24,10 +24,8 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation, update_quaternion
 from helper_model import getcolormodel, interpolate_point, interpolate_partuse,interpolate_pointv3,add_extra_point,prune_point
 
-from scene.hexplane_mip import HexPlaneField_mip
-from scene.hexplane_mip_allscale import HexPlaneField_mip_allscale
-# import matplotlib.pyplot as plt
-# import tinycudann as tcnn
+from scene.hexplane import ScaleAwareResField
+
 
 class GaussianModel:
 
@@ -81,7 +79,6 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
-        self._omega = torch.empty(0) #旋转的系数
 
     
         self.setup_functions()
@@ -95,14 +92,11 @@ class GaussianModel:
         self.D=args.deform_feature_dim #16
         self.H=args.deform_hidden_dim #128
         self.time_emb ,out_dim = get_embedder(args.deform_time_encode) #8
-        self.dir_emb, dir_out_dim = get_embedder(4,3)
+        # self.dir_emb, dir_out_dim = get_embedder(4,3)
 
-        print(self.args.planemodel)
-        if self.args.planemodel == "hexplane_mip":
-            self.hexplane = HexPlaneField_mip(args.bounds, args.kplanes_config, args.multires)
-
-        # elif self.args.planemodel == "hexplane_mip_allscale":
-        #     self.hexplane = HexPlaneField_mip_allscale(args.bounds, args.kplanes_config, args.multires)
+        if self.args.planemodel == "scale_aware":
+            print("use scale-aware residual field")
+            self.hexplane = ScaleAwareResField(args.bounds, args.kplanes_config, args.multires)
         else:
             raise NotImplementedError
         hexplane_outdim = self.hexplane.feat_dim
@@ -115,9 +109,8 @@ class GaussianModel:
         
         self.shs_mlp = nn.Sequential(nn.Linear(out_dim+hexplane_outdim,self.H),nn.ReLU(),nn.Linear(self.H,self.H),nn.ReLU(),nn.Linear(self.H, 48))
 
-        self._trbf_center =None
-        self._trbf_scale =None
-
+        self._temporal_pos =None
+        self._lifespan =None
 
         self.min_intergral = self.args.min_intergral #最小的intergral，小于这个的应该被过滤掉
         self.is_dynamatic = False
@@ -146,8 +139,8 @@ class GaussianModel:
         "hexplane",
         "_motion",
         "_omega",
-        "_trbf_center",
-        "_trbf_scale"
+        "_temporal_pos",
+        "_lifespan"
     ]
 
     # 动态构建返回值元组
@@ -179,8 +172,8 @@ class GaussianModel:
             ("hexplane",self),
             ("_motion", self),
             ("_omega", self),
-            ("_trbf_center", self),
-            ("_trbf_scale", self)
+            ("_temporal_pos", self),
+            ("_lifespan", self)
         ]
         local_={}
         attributes = [attr for attr in attributes[:] if attr[0] is not None]
@@ -192,12 +185,12 @@ class GaussianModel:
 
         if self.is_dynamatic:
             with torch.no_grad():
-                scales = torch.cat((self.get_scaling,self._trbf_scale.detach()/2),dim=1)
-                hexplane_feature = self.hexplane(self._xyz,self._trbf_center ,scales) #[N,D]
-                trbf_scale = 1-self.opacity_mlp(hexplane_feature) #得到trbf_scale
+                scales = torch.cat((self.get_scaling,self._lifespan.detach()/2),dim=1)
+                hexplane_feature = self.hexplane(self._xyz,self._temporal_pos ,scales) #[N,D]
+                lifespan = 1-self.opacity_mlp(hexplane_feature) #得到lifespan
                 min_scale = self.args.min_interval/(self.duration)
-                trbf_scale = (1-min_scale)*trbf_scale + min_scale #限制min_scale最小值
-                self._trbf_scale = trbf_scale
+                lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值
+                self._lifespan = lifespan
         print(self.hexplane.aabb)
         self.init_mlp_grd()
         if self.args.enable_scale_sum:
@@ -214,7 +207,6 @@ class GaussianModel:
         return self.scaling_activation(self._scaling)
     @property
     def get_rotation(self):
-        #获取新的旋转
         return self.rotation_activation(self._rotation)
     
 
@@ -223,17 +215,17 @@ class GaussianModel:
     def get_xyz(self):
         return self._xyz
     @property
-    def get_trbfcenter(self):
+    def get_temporalpos(self):
         if self.args.sigmoid_tcenter:
-            return torch.sigmoid(self._trbf_center)
+            return torch.sigmoid(self._temporal_pos)
         else:
-            return self._trbf_center
+            return self._temporal_pos
     @property
     def get_dynamatic_trbfcenter(self):
-        return self.get_trbfcenter
+        return self.get_temporalpos
     @property
-    def get_trbfscale(self):
-        return self._trbf_scale
+    def get_lifespan(self):
+        return self._lifespan
     @property
     def get_features(self):
         features_dc = self._features_dc
@@ -251,8 +243,6 @@ class GaussianModel:
             self.active_sh_degree += 1
 
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, all_frame_time_init = False):
-        '''要保证所有的参数都是叶子结点。如果有不是叶子节点的,那么在反传的时候就会报错。nn.parameter就能保证是个叶子节点'''
-        print(self.preprocesspoints)
         if self.preprocesspoints == 0:
             pass
         elif self.preprocesspoints == 3:
@@ -266,35 +256,9 @@ class GaussianModel:
 
         elif self.preprocesspoints == 4:
             pcd = interpolate_point(pcd, 40) 
-        
-        elif self.preprocesspoints == 5:
-            pcd = interpolate_point(pcd, 6) 
-
-        elif self.preprocesspoints == 6:
-            pcd = interpolate_point(pcd, 8) 
-        
-        elif self.preprocesspoints == 7:
-            pcd = interpolate_point(pcd, 16) 
-        
-        elif self.preprocesspoints == 8:
-            pcd = interpolate_pointv3(pcd, 4) 
-
-        elif self.preprocesspoints == 14:
-            pcd = interpolate_partuse(pcd, 2) 
-        
-        elif self.preprocesspoints == 15:
-            pcd = interpolate_partuse(pcd, 4) 
-
-        elif self.preprocesspoints == 16:
-            pcd = interpolate_partuse(pcd, 8) 
-        
-        elif self.preprocesspoints == 17:
-            pcd = interpolate_partuse(pcd, 16) 
         else:
             pcd = interpolate_point(pcd, self.preprocesspoints) 
-        # else:
-        #     pcd = pcd
-        # pcd = add_extra_point(pcd)
+
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
@@ -302,11 +266,6 @@ class GaussianModel:
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
-        # print(fused_point_cloud)
-        # fused_color = torch.tensor(np.asarray(pcd.colors)).float().cuda()
-
-        #启用时间
-
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -320,24 +279,10 @@ class GaussianModel:
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
-
-        if self.args.rgbdecoder:
-            fused_color = torch.tensor(np.asarray(pcd.colors)).float().cuda()
-            features9channel = torch.cat((fused_color, fused_color, fused_color), dim=1)
-            self._features_dc = nn.Parameter(features9channel.contiguous().requires_grad_(True))
-        else:
-            self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) #[n,1,3]
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) #[n,1,3]
         self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) #[n,15,3]
-
-        N, _ = fused_color.shape
-
-        
-        
-
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
-
-
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         
 
@@ -348,41 +293,26 @@ class GaussianModel:
         self.shs_mlp.to('cuda')
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        #sigmoid time
-        if all_frame_time_init:
-            times = torch.tensor(np.asarray(pcd.times)).float().cuda()
-        else:
-            #use in the paper:N3d,dnerf
-            times = torch.rand((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda")
-        self._trbf_center = nn.Parameter(times.contiguous().requires_grad_(True))
+
+        times = torch.rand((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda")
+        self._temporal_pos = nn.Parameter(times.contiguous().requires_grad_(True))
 
 
         self.mlp_grd = {}
         self.init_mlp_grd()
 
-        # print(self._xyz.size())
-        self.maxz, self.minz = torch.amax(self._xyz[:,2]), torch.amin(self._xyz[:,2]) 
-        self.maxy, self.miny = torch.amax(self._xyz[:,1]), torch.amin(self._xyz[:,1]) 
-        self.maxx, self.minx = torch.amax(self._xyz[:,0]), torch.amin(self._xyz[:,0]) 
-        
-        self.maxz = min((self.maxz, 200.0)) # some outliers in the n4d datasets.. 
-     
-        if self.args.planemodel == "hexplane_mip":
-            self.hexplane.set_base_scale(spatial_lr_scale)
+
+
     def static2dynamatic(self):
         self.is_dynamatic = True
 
 
 
     def cache_gradient(self,stage):
-        '''把grad都传给grd'''
-        if stage == "dynamatic":#只有dynamtic时，才会有下面这三个的梯度
-
-
+        '''cache the grad to support batch optimzation'''
+        if stage == "dynamatic":
             def add_mlp(mlp,mlp_name,weight_name=''):
                 for name, W in mlp.named_parameters():
-                    # if name =="grids.0.1":
-                    #     print(self.batch_iter,name,W.grad)
                     if weight_name in name and W.grad is not None:
                         self.mlp_grd[mlp_name+name] += W.grad.clone()
             
@@ -392,11 +322,7 @@ class GaussianModel:
             add_mlp(self.hexplane,"hexplane","grids")
             add_mlp(self.shs_mlp,"shs")
 
-
-            self._trbf_center_grd += self._trbf_center.grad.clone()
-
-
-
+            self._temporal_pos_grd += self._temporal_pos.grad.clone()
 
         self._xyz_grd += self._xyz.grad.clone()
         self._features_dc_grd += self._features_dc.grad.clone()
@@ -408,7 +334,7 @@ class GaussianModel:
 
         
     def zero_gradient_cache(self):
-        '''把grd都置零'''
+        '''clear'''
         self._xyz_grd = torch.zeros_like(self._xyz, requires_grad=False)
         self._features_dc_grd = torch.zeros_like(self._features_dc, requires_grad=False)
         self._features_rest_grd = torch.zeros_like(self._features_rest, requires_grad=False)
@@ -416,10 +342,8 @@ class GaussianModel:
         self._scaling_grd = torch.zeros_like(self._scaling, requires_grad=False)
         self._rotation_grd = torch.zeros_like(self._rotation, requires_grad=False)
         self._opacity_grd = torch.zeros_like(self._opacity, requires_grad=False)
-        self._trbf_center_grd = torch.zeros_like(self._trbf_center, requires_grad=False)
+        self._temporal_pos_grd = torch.zeros_like(self._temporal_pos, requires_grad=False)
         self._motion_grd = torch.zeros_like(self._motion, requires_grad=False)
-
-        self._omega_grd = torch.zeros_like(self._omega, requires_grad=False)
 
         for name in self.mlp_grd.keys():
             self.mlp_grd[name].zero_()
@@ -434,14 +358,12 @@ class GaussianModel:
         self._scaling.grad = self._scaling_grd * ratio
         self._rotation.grad = self._rotation_grd * ratio
         self._opacity.grad = self._opacity_grd * ratio
-        self._trbf_center.grad = self._trbf_center_grd * ratio
-        # print()
-        t_nan = self._trbf_center.grad.isnan().sum()
-        # print(t_nan)
-        assert t_nan ==0
-        self._motion.grad = self._motion_grd * ratio
+        self._temporal_pos.grad = self._temporal_pos_grd * ratio
 
-        self._omega.grad = self._omega_grd * ratio
+        t_nan = self._temporal_pos.grad.isnan().sum()
+        assert t_nan ==0
+
+        self._motion.grad = self._motion_grd * ratio
 
 
         if stage == "dynamatic":
@@ -456,21 +378,8 @@ class GaussianModel:
             set_mlp_gradient(self.hexplane,"hexplane","grids")
             set_mlp_gradient(self.shs_mlp,"shs")
             
-            # set_mlp_gradient(self.rgbdecoder,"rgbdecoder",'weight')
-            # for name, W in self.motion_mlp.named_parameters():
-            #     # if 'weight' in name:
-            #         # print(name,W)
-            #         W.grad = self.mlp_grd["motion"+name] * ratio
-            # for name, W in self.rot_mlp.named_parameters():
-            #     # if 'weight' in name:
-            #         W.grad = self.mlp_grd["rot"+name] * ratio
-
-            # for name, W in self.hexplane.named_parameters():
-            #     if "grids" in name:
-            #         W.grad = self.mlp_grd["hexplane"+name] * ratio
 
     def training_setup(self, training_args):
-        '''设置optimizer'''
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -491,40 +400,28 @@ class GaussianModel:
         {'params': list(self.opacity_mlp.parameters()), 'lr':   training_args.mlp_lr , "weight_decay":8e-7,"name": "opacity_mlp"},
         {'params': list(self.hexplane.parameters()), 'lr':   training_args.hexplane_lr*self.spatial_lr_scale , "weight_decay":8e-7,"name": "hexplane"},
         {'params': list(self.shs_mlp.parameters()), 'lr':   training_args.mlp_lr, "weight_decay":8e-7,"name": "shs_mlp"},
-        {'params': [self._trbf_center], 'lr': training_args.trbfc_lr, "name": "trbf_center"},
+        {'params': [self._temporal_pos], 'lr': training_args.trbfc_lr, "name": "temporal_pos"},
         ]
 
         
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15,fused=True)
-        # print(len(self.optimizer.param_groups))
-        # print(len(self.optimizer.state))
+
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)
         self.mlp_scheduler_args = get_expon_lr_func(lr_init=training_args.mlp_lr,
                                                     lr_final=training_args.mlp_lr_final,
-                                                    # lr_delay_mult=training_args.mlp_lr_delay_mult,
-                                                    # start_step = training_args.static_iteration,
                                                     start_step = -1,
                                                     max_steps=training_args.position_lr_max_steps)
-        self.deform_feature_scheduler_args = get_expon_lr_func(lr_init=training_args.deform_feature_lr,
-                                                    lr_final=training_args.deform_feature_lr_final,
-                                                    # lr_delay_mult=training_args.deform_feature_lr_delay_mult,
-                                                    # start_step = training_args.static_iteration,
-                                                    start_step = -1,
-                                                    max_steps=training_args.position_lr_max_steps)
+
         self.hexplane_scheduler_args = get_expon_lr_func(lr_init=training_args.hexplane_lr,
                                                     lr_final=training_args.hexplane_lr_final,
-                                                    # lr_delay_mult=training_args.hexplane_lr_delay_mult,
-                                                    # start_step = training_args.static_iteration,
                                                     start_step = -1,
                                                     max_steps=training_args.position_lr_max_steps)  
-        self.trbf_center_scheduler_args = get_expon_lr_func(lr_init=training_args.trbfc_lr,
+        self.temporal_pos_scheduler_args = get_expon_lr_func(lr_init=training_args.trbfc_lr,
                                                     lr_final=training_args.trbfc_lr_final,
-                                                    # lr_delay_mult=training_args.hexplane_lr_delay_mult,
-                                                    # start_step = training_args.static_iteration,
                                                     start_step = -1,
                                                     max_steps=training_args.position_lr_max_steps)
         self.inv_intergral =torch.ones_like(self._opacity)
@@ -532,9 +429,7 @@ class GaussianModel:
 
     def update_learning_rate(self, iteration,stage=None,use_intergral=True,scale_intergral=True):
         ''' Learning rate scheduling per step '''
-        # print(self.inv_intergral,self.inv_intergral.max(),self.inv_intergral.min())
         if stage ==  "dynamatic" and iteration%50==0:
-        #     # print(self.inv_intergral,self.inv_intergral.max(),self.inv_intergral.min())
 
             intergral = self.get_intergral()
             valid_mask = (intergral>self.min_intergral).squeeze()
@@ -561,24 +456,19 @@ class GaussianModel:
             elif "mlp" in param_group["name"] :
                 lr = self.mlp_scheduler_args(iteration)
                 param_group['lr'] = lr
-            elif param_group["name"] == "motion" or param_group["name"] =="omega":
-                lr = self.deform_feature_scheduler_args(iteration)
-                # lr=0
-                param_group['lr'] = lr
+
             elif param_group["name"] == "hexplane":
                 lr = self.hexplane_scheduler_args(iteration)
                 param_group['lr'] = lr
 
             elif param_group["name"] =="opacity":
-
-                    lr = self.training_args.opacity_lr*self.inv_intergral
-
-                    param_group['lr'] = lr
-            elif param_group["name"] =="trbf_center":
-                # lr = self.trbf_center_scheduler_args(iteration)* self.inv_intergral
+                lr = self.training_args.opacity_lr*self.inv_intergral
+                param_group['lr'] = lr
+            elif param_group["name"] =="temporal_pos":
+                # lr = self.temporal_pos_scheduler_args(iteration)* self.inv_intergral
                 lr = self.training_args.trbfc_lr * self.inv_intergral
                 param_group['lr'] = lr
-                # print("trbf_center",lr)
+                # print("temporal_pos",lr)
             elif param_group["name"] == "scaling":
                 lr = self.training_args.scaling_lr 
                 if scale_intergral:
@@ -606,7 +496,7 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        l.append('trbf_center')
+        l.append('temporal_pos')
 
 
         return l
@@ -621,13 +511,13 @@ class GaussianModel:
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
-        trbf_center= self._trbf_center.detach().cpu().numpy()
+        temporal_pos= self._temporal_pos.detach().cpu().numpy()
 
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        # attributes = np.concatenate((xyz, trbf_center, trbf_scale, normals, motion, f_dc, opacities, scale, rotation, omega), axis=1)
-        attributes = np.concatenate((xyz, normals,f_dc,f_rest, opacities, scale, rotation,trbf_center), axis=1)
+        # attributes = np.concatenate((xyz, temporal_pos, lifespan, normals, motion, f_dc, opacities, scale, rotation, omega), axis=1)
+        attributes = np.concatenate((xyz, normals,f_dc,f_rest, opacities, scale, rotation,temporal_pos), axis=1)
 
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
@@ -637,7 +527,7 @@ class GaussianModel:
         print(f'Saving model checkpoint to: {model_fname}')
         # torch.save(self.rgbdecoder.state_dict(), model_fname)
         mlp_dict = {'motion_state_dict': self.motion_mlp.state_dict(), 'rot_state_dict': self.rot_mlp.state_dict(),
-        'hexplane_state_dict':self.hexplane,"opacity_state_dict":self.opacity_mlp.state_dict(),
+        'hexplane_state_dict':self.hexplane.state_dict(),"opacity_state_dict":self.opacity_mlp.state_dict(),
         "shs_state_dict":self.shs_mlp.state_dict()}
 
         torch.save(mlp_dict, model_fname)
@@ -651,7 +541,6 @@ class GaussianModel:
 
 
    
-   
     def load_ply(self, path):
         plydata = PlyData.read(path)
         #ckpt = torch.load(path.replace(".ply", ".pt"))
@@ -662,8 +551,8 @@ class GaussianModel:
                         np.asarray(plydata.elements[0]["z"])),  axis=1)
         opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
 
-        trbf_center= np.asarray(plydata.elements[0]["trbf_center"])[..., np.newaxis]
-        
+        # temporal_pos= np.asarray(plydata.elements[0]["temporal_pos"])[..., np.newaxis]
+        temporal_pos= np.asarray(plydata.elements[0]["trbf_center"])[..., np.newaxis]
 
         features_dc = np.zeros((xyz.shape[0], 3, 1))
         features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
@@ -692,14 +581,7 @@ class GaussianModel:
         for idx, attr_name in enumerate(rot_names):
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-
-
-
-
-
         mlp_state_dict = torch.load(path.replace(".ply", ".pth"))
-
-
 
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
@@ -708,7 +590,7 @@ class GaussianModel:
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._trbf_center = nn.Parameter(torch.tensor(trbf_center, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._temporal_pos = nn.Parameter(torch.tensor(temporal_pos, dtype=torch.float, device="cuda").requires_grad_(True))
         self.active_sh_degree = self.max_sh_degree
 
 
@@ -717,8 +599,13 @@ class GaussianModel:
         # self.hexplane.load_state_dict({k.replace('hexplane_', ''): v for k, v in mlp_state_dict['hexplane_state_dict'].items()})
         self.opacity_mlp.load_state_dict({k.replace('opacity_', ''): v for k, v in mlp_state_dict['opacity_state_dict'].items()})
         self.shs_mlp.load_state_dict({k.replace('shs_', ''): v for k, v in mlp_state_dict['shs_state_dict'].items()})
-        self.hexplane = mlp_state_dict["hexplane_state_dict"]
-        
+        self.hexplane.load_state_dict({k.replace('hexplane_', ''): v for k, v in mlp_state_dict['hexplane_state_dict'].items()})
+
+        # print(self.hexplane.state_dict().keys())
+        # self.hexplane = mlp_state_dict["hexplane_state_dict"]
+        # print(mlp_state_dict["hexplane_state_dict"])
+        # print(self.hexplane)
+        # print(self.hexplane.state_dict().keys())
         self.motion_mlp.to("cuda")
         self.rot_mlp.to("cuda")
         self.hexplane.to("cuda")
@@ -741,7 +628,6 @@ class GaussianModel:
         add_mlp(self.shs_mlp,"shs")
 
     def replace_tensor_to_optimizer(self, tensor, name):
-        '''将optim中对应name的值给换成tensor，并且adam中原本保存的状态清0'''
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             if group["name"] == name:
@@ -788,7 +674,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        self._trbf_center = optimizable_tensors["trbf_center"]
+        self._temporal_pos = optimizable_tensors["temporal_pos"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
         self.t_gradient_accum = self.t_gradient_accum[valid_points_mask]
@@ -798,7 +684,6 @@ class GaussianModel:
 
 
     def cat_tensors_to_optimizer(self, tensors_dict):
-        '''将tensors cat 到optimizer中，即加入进去'''
         optimizable_tensors = {}
 
         for group in self.optimizer.param_groups:
@@ -821,24 +706,24 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_feature_rest ,new_opacities, new_scaling, new_rotation, new_trbf_center, dummy=None):
+    def densification_postfix(self, new_xyz, new_features_dc, new_feature_rest ,new_opacities, new_scaling, new_rotation, new_temporal_pos, dummy=None):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_feature_rest,
         "opacity": new_opacities,
         "scaling" : new_scaling,
         "rotation" : new_rotation,
-        "trbf_center" : new_trbf_center,
+        "temporal_pos" : new_temporal_pos,
 
         }
-        optimizable_tensors = self.cat_tensors_to_optimizer(d) #将这些点加入进去
+        optimizable_tensors = self.cat_tensors_to_optimizer(d) 
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        self._trbf_center = optimizable_tensors["trbf_center"]
+        self._temporal_pos = optimizable_tensors["temporal_pos"]
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -851,7 +736,6 @@ class GaussianModel:
     def densify_and_splitv2(self, grads, grad_threshold, scene_extent, N=2,t_grads=None):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
-        #因为之前clone过了，所以要把grads给补齐
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
 
@@ -876,10 +760,10 @@ class GaussianModel:
             new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1) # n,1,1 to n1
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-        new_trbf_center = self._trbf_center[selected_pts_mask].repeat(N,1)
+        new_temporal_pos = self._temporal_pos[selected_pts_mask].repeat(N,1)
 
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacity, new_scaling, new_rotation,new_trbf_center)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacity, new_scaling, new_rotation,new_temporal_pos)
 
 
         if self.args.enable_scale_sum:
@@ -889,8 +773,6 @@ class GaussianModel:
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
     
-
-
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent,t_grads=None):
 
@@ -907,8 +789,8 @@ class GaussianModel:
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
-        new_trbf_center =  self._trbf_center[selected_pts_mask] # 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacities, new_scaling, new_rotation,new_trbf_center)
+        new_temporal_pos =  self._temporal_pos[selected_pts_mask] # 
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacities, new_scaling, new_rotation,new_temporal_pos)
 
 
         if self.args.enable_scale_sum:
@@ -925,30 +807,27 @@ class GaussianModel:
         t_grads =None
         self.densify_and_clone(grads, max_grad, extent, t_grads)
 
-
         self.densify_and_splitv2(grads, max_grad, extent, 2, t_grads)
 
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
 
-        intergral_mask = (self.get_intergral() <self.min_intergral).squeeze() #将intergral小于0的点给去掉
+        intergral_mask = (self.get_intergral() <self.min_intergral).squeeze() #pure based on intergral 
 
         prune_mask = torch.logical_or(prune_mask, intergral_mask)
+
         if self.args.loader == "colmap":
             z_mask = (self.get_xyz[:,2] < 4.5).squeeze()
-            # print("pure_z",z_mask.sum())
-            prune_mask = torch.logical_or(prune_mask, z_mask)#把这个移到外面去
-
+            prune_mask = torch.logical_or(prune_mask, z_mask)# for stability  
 
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
-            # spatial_scale = self.get_real_scale()  
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
 
             if self.args.pw:
                 prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
             else:
-                prune_mask = torch.logical_or(prune_mask,  big_points_vs)#只用vs
+                prune_mask = torch.logical_or(prune_mask,  big_points_vs)#only vs
         self.prune_points(prune_mask)
 
         if self.args.enable_scale_sum:
@@ -966,93 +845,49 @@ class GaussianModel:
         if avg_t_grad is not None:
             self.t_gradient_accum[update_filter] += avg_t_grad[update_filter]
 
-   
-
-    def prune_pointswithemsmask(self, mask):
-        valid_points_mask = ~mask
-        optimizable_tensors = self._prune_optimizer(valid_points_mask)
-
-        self._xyz = optimizable_tensors["xyz"]
-        self._features_dc = optimizable_tensors["f_dc"]
-        #self._features_rest = optimizable_tensors["f_rest"]
-        self._opacity = optimizable_tensors["opacity"]
-        self._scaling = optimizable_tensors["scaling"]
-        self._rotation = optimizable_tensors["rotation"]
-        self._trbf_center = optimizable_tensors["trbf_center"]
-        self._trbf_scale = optimizable_tensors["trbf_scale"]
-        self._motion = optimizable_tensors["motion"]
-        self._omega = optimizable_tensors["omega"]
-
-        self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
-        self.t_gradient_accum = self.t_gradient_accum[valid_points_mask]
-        self.denom = self.denom[valid_points_mask]
-        self.max_radii2D = self.max_radii2D[valid_points_mask]
-
-        self.maskforems = self.maskforems[valid_points_mask] # we only remain valid mask from ems 
-
-
-
-
-
-    def get_motion(self, timestamp):
-        #给visualize用的
-        time_embbed = self.time_emb(torch.tensor([timestamp],dtype=torch.float, device="cuda"))
-        # print(time_embbed)
-        time_embbed = time_embbed.repeat(self._motion.shape[0],1)
-        motion_input = torch.cat((self._motion,time_embbed),dim=1)
-
-        residual = self.motion_mlp(motion_input)
-        motion = self._xyz.detach() + residual
-
-        return motion
-
-
 
     @property
     def get_points_num(self):
         return self._xyz.shape[0]
 
-    def get_trbfoutput(self,trbfdistance):
+    def get_survival_state(self,trbfdistance):
+        # state function in Eq 9 in the main paper
         return torch.exp(-4*(trbfdistance**2))
     
     def get_intergral(self,start=0.0,end=1.0):
-        # print(self.get_trbfscale.shape,self.get_trbfcenter.shape)
+        #Eq 22 in the main paper
 
         with torch.no_grad():
-            hexplane_feature = self.hexplane(self._xyz.detach(),self.get_trbfcenter.detach(),self.get_scaling.detach()) #[N,D]
-            trbf_scale = 1-self.opacity_mlp(hexplane_feature.clone()) #得到trbf_scale
+            hexplane_feature = self.hexplane(self._xyz.detach(),self.get_temporalpos.detach(),self.get_scaling.detach()) #[N,D]
+            lifespan = 1-self.opacity_mlp(hexplane_feature.clone()) #get lifespan
             min_scale = self.args.min_interval/(self.duration)
-            trbf_scale = (1-min_scale)*trbf_scale + min_scale #限制min_scale最小值
-        # 计算output函数在start和end之间的积分
+            lifespan = (1-min_scale)*lifespan + min_scale 
+
         def Q(x:torch.Tensor):
             # print(x)
             a1 = torch.tensor([0.070565902],device="cuda")
             a2 = torch.tensor([1.5976],device="cuda") 
-            # print(a1*x**3+a2*x)
             return (1-1/(1+torch.exp(a1*x**3+a2*x)))
-        p1 = Q(2*np.sqrt(2)*(end-self.get_trbfcenter)/trbf_scale)
-        p2 = Q(2*np.sqrt(2)*(start-self.get_trbfcenter)/trbf_scale)
-        # print(p1,p2)
-        return trbf_scale*np.sqrt(np.pi)/2*(p1-p2)
+        p1 = Q(2*np.sqrt(2)*(end-self.get_temporalpos)/lifespan)
+        p2 = Q(2*np.sqrt(2)*(start-self.get_temporalpos)/lifespan)
+        return lifespan*np.sqrt(np.pi)/2*(p1-p2)
 
     def get_deformation(self,timestamp,rays=None):
-        # scales = torch.cat((self.get_scaling.detach(),self._trbf_scale.detach()/2),dim=1)
-        hexplane_feature = self.hexplane(self._xyz.detach(),self.get_trbfcenter.detach(),self.get_scaling.detach()) #[N,D]
+        hexplane_feature = self.hexplane(self._xyz.detach(),self.get_temporalpos.detach(),self.get_scaling.detach()) #[N,D]
 
-        trbf_scale = 1-self.opacity_mlp(hexplane_feature) #得到trbf_scale
+        lifespan = 1-self.opacity_mlp(hexplane_feature) #得到lifespan
         min_scale = self.args.min_interval/(self.duration)
-        trbf_scale = (1-min_scale)*trbf_scale + min_scale #限制min_scale最小值
-        self._trbf_scale = trbf_scale
+        lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值
+        self._lifespan = lifespan
 
 
-        trbfdistanceoffset = timestamp  - self.get_trbfcenter
-        trbfdistance =  trbfdistanceoffset / trbf_scale
-        trbfoutput = self.get_trbfoutput(trbfdistance)
+        distance = timestamp  - self.get_temporalpos
+        trbfoutput = self.get_survival_state(distance / lifespan)
 
-        time_embbed = self.time_emb(trbfdistanceoffset)
+        time_embbed = self.time_emb(distance)
         deform_feature = torch.cat((hexplane_feature,time_embbed.detach()),dim=1)
         
-        base_time_embbed = self.time_emb(torch.zeros_like(trbfdistanceoffset))
+        base_time_embbed = self.time_emb(torch.zeros_like(distance))
         base_deform_feature = torch.cat((hexplane_feature,base_time_embbed.detach()),dim=1)
         if self.args.scale_reg:
             self.scale_residual = self.rot_mlp(base_deform_feature)[:,4:]
@@ -1073,31 +908,18 @@ class GaussianModel:
         
         if self.args.drot:
             rot_residual = self.rot_mlp(deform_feature)
-
             base_scale = self.get_scaling.detach()
-
             rot = self._rotation + rot_residual[:,:4]
-
-
             rot = self.rotation_activation(rot)
 
-            if self.args.scale_rot:
-                scale_res =  rot_residual[:,4:]
-                scale = self._scaling + rot_residual[:,4:]
-                scale = self.scaling_activation(scale)
+            scale_res =  rot_residual[:,4:]
+            scale = self._scaling + rot_residual[:,4:]
+            scale = self.scaling_activation(scale)
             
         else:
             rot = self.get_rotation
-            if self.args.scale_rot:
-                scale = self.get_scaling
-        #若为scale_rot,则scale归上面的管。否则scale归下面的管
-        if not self.args.scale_rot:
-            if self.args.dscale:
-                scale_res = self.scale_mlp(deform_feature)
-                scale = self._scaling + scale_res
-                scale = self.scaling_activation(scale)
-            else:
-                scale = self.get_scaling
+            scale = self.get_scaling
+  
 
         if self.args.dopacity:
 
@@ -1120,15 +942,12 @@ class GaussianModel:
 
         return motion, rot,scale,opacity,shs
     
-
-
-
     def set_bounds(self,xyz_max, xyz_min):
-        print("set bounds")
         bounds = torch.tensor([xyz_max, xyz_min],dtype=torch.float32,device='cuda')
-        print(bounds)
+        print("set bounds for residual field:", bounds)
         self.bounds = nn.Parameter(bounds,requires_grad=False)
         self.hexplane.set_aabb(xyz_max,xyz_min,self.duration)
+        
     def inv_normalize_xyz(self,norm_xyz):
         min_bounds = self.bounds[1]
         max_bounds = self.bounds[0]
@@ -1136,97 +955,69 @@ class GaussianModel:
     def normalize_residual(self,norm_xyz):
         '''0-1 -> -(max_bounds - min_bounds) - (max_bounds - min_bounds)'''
         return (2*norm_xyz-1) * (self.bounds[0] - self.bounds[1])
+
     def get_deformfeature(self):
         scales = torch.cat((self.get_scaling.detach(),torch.zeros((self.get_scaling.shape[0],1),device="cuda")),dim=1)
 
-        # scales = torch.cat((self.get_scaling.detach(),self._trbf_scale.detach()/2),dim=1)
+        # scales = torch.cat((self.get_scaling.detach(),self._lifespan.detach()/2),dim=1)
         # print(scales.shape)
-        self.hexplane_feature = self.hexplane(self._xyz.detach(),self.get_trbfcenter.detach(),scales.detach()) #[N,D]
-        trbf_scale = 1-self.opacity_mlp(self.hexplane_feature) #得到trbf_scale
+        self.hexplane_feature = self.hexplane(self._xyz.detach(),self.get_temporalpos.detach(),scales.detach()) #[N,D]
+        lifespan = 1-self.opacity_mlp(self.hexplane_feature) #得到lifespan
         min_scale = self.args.min_interval/(self.duration)
-        trbf_scale = (1-min_scale)*trbf_scale + min_scale #限制min_scale最小值
-        self._trbf_scale = trbf_scale
-    def get_deformation_eval(self,timestamp,rays=None):
-        trbfdistanceoffset = timestamp  - self.get_trbfcenter
-        trbfdistance =  trbfdistanceoffset / self._trbf_scale
-        trbfoutput = self.get_trbfoutput(trbfdistance)
+        lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值
+        self._lifespan = lifespan
 
-        time_embbed = self.time_emb(trbfdistanceoffset)
+    def get_deformation_eval(self,timestamp,rays=None):
+        distance = timestamp  - self.get_temporalpos
+        state = self.get_survival_state(distance / self._lifespan)
+
+        time_embbed = self.time_emb(distance)
         deform_feature = torch.cat((self.hexplane_feature,time_embbed.detach()),dim=1)
         
-        select_mask = trbfoutput>0.001
+        select_mask = state>0.001
 
         deform_feature = deform_feature[select_mask.squeeze()]
-        trbfoutput = trbfoutput[select_mask.squeeze()]
-        if self.args.onemlp:
-            motion_residual  = self.motion_mlp(deform_feature)
-            motion = self._xyz + motion_residual[:,:3]
-            rot = self._rotation + motion_residual[:,3:7]
+        state = state[select_mask.squeeze()]
+
+        if self.args.dx:
+            motion_residual = self.motion_mlp(deform_feature)
+            motion = self._xyz[select_mask.squeeze()] + motion_residual
+        else:
+            motion = self._xyz
+        
+        if self.args.drot:
+            rot_residual = self.rot_mlp(deform_feature)
+            rot = self._rotation[select_mask.squeeze()] + rot_residual[:,:4]
+
             rot = self.rotation_activation(rot)
 
-            scale = self._scaling + motion_residual[:,7:]
+            scale_res =  rot_residual[:,4:]
+            scale = self._scaling[select_mask.squeeze()] + rot_residual[:,4:]
             scale = self.scaling_activation(scale)
         else:
-            if self.args.dx:
+            rot = self.get_rotation
+            scale = self.get_scaling
 
-                motion_residual = self.motion_mlp(deform_feature)
-
-                motion = self._xyz[select_mask.squeeze()] + motion_residual
-
-
-            else:
-                motion = self._xyz
-            
-            if self.args.drot:
-                rot_residual = self.rot_mlp(deform_feature)
-                rot = self._rotation[select_mask.squeeze()] + rot_residual[:,:4]
-
-                rot = self.rotation_activation(rot)
-
-                if self.args.scale_rot:
-                    scale_res =  rot_residual[:,4:]
-                    scale = self._scaling[select_mask.squeeze()] + rot_residual[:,4:]
-                    scale = self.scaling_activation(scale)
-            else:
-                rot = self.get_rotation
-                if self.args.scale_rot:
-                    scale = self.get_scaling
-            #若为scale_rot,则scale归上面的管。否则scale归下面的管
-            if not self.args.scale_rot:
-                if self.args.dscale:
-                    scale_res = self.scale_mlp(deform_feature)
-                    scale = self._scaling + scale_res
-                    scale = self.scaling_activation(scale)
-                else:
-                    scale = self.get_scaling
 
         if self.args.dopacity:
-
             opacity = self._opacity[select_mask.squeeze()]
-            opacity = self.opacity_activation(opacity)*trbfoutput
+            opacity = self.opacity_activation(opacity)*state
 
         else:
             opacity = self.get_opacity
 
-        if not self.args.rgbdecoder:
-            if self.args.dsh:
-                shs_residual = self.shs_mlp(deform_feature).reshape(-1,16,3)
-                # print(shs_residual)
-                features_dc =  self._features_dc[select_mask.squeeze()] 
-                features_rest = self._features_rest[select_mask.squeeze()]
-                shs = torch.cat((features_dc, features_rest), dim=1) + shs_residual
-            else:
-                features_dc = self._features_dc
-                features_rest = self._features_rest
-                shs =  torch.cat((features_dc, features_rest), dim=1)
-            # print(self.hexplane.aabb)
 
-        if self.args.rgbdecoder:
-            rgb_feature = self.shs_mlp(deform_feature)+self._features_dc
-            shs=None
+        if self.args.dsh:
+            shs_residual = self.shs_mlp(deform_feature).reshape(-1,16,3)
+            features_dc =  self._features_dc[select_mask.squeeze()] 
+            features_rest = self._features_rest[select_mask.squeeze()]
+            shs = torch.cat((features_dc, features_rest), dim=1) + shs_residual
         else:
-            rgb_feature = None
-        return motion, rot,scale,opacity,shs,rgb_feature
+            features_dc = self._features_dc
+            features_rest = self._features_rest
+            shs =  torch.cat((features_dc, features_rest), dim=1)
+
+        return motion, rot,scale,opacity,shs
 def get_embedder(multires, i=1):
     if i == -1:
         return nn.Identity(), 3
