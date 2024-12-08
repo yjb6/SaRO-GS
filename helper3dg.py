@@ -38,7 +38,7 @@ def getparser():
     parser.add_argument('--port', type=int, default=6029)
     parser.add_argument('--debug_from', type=int, default=-2)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[5_000,7000,9_000, 12000,13_000,14_000, 15_000,17_000,18_000,20_000,23_000,25_000, 28_000,30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 5_000,7000,9_000, 12000,13_000,14_000, 15_000,17_000,18_000,20_000,23_000,25_000, 28_000,30_000])
     parser.add_argument("--testing_iterations", nargs="+", type=int, default=[3000,4000,5_000,6_000,7_000,8_000,9_000,10_000,11_000,12000,12_500,13_000, 15_000,17_000,20_000,23_000,25_000, 28_000,30_000,30_500,31_000])
 
     parser.add_argument("--test_iteration", default=-1, type=int)
@@ -105,23 +105,16 @@ def getrenderparts(render_pkg):
 
 
 def gettestparse():
-    #总体还是cfg里有的key，但是值可能会改变
     parser = ArgumentParser(description="Testing script parameters")
     model = ModelParams(parser, sentinel=True)#并不保持Model的默认值，将默认值设为None
     pipeline = PipelineParams(parser)
-    # parser.add_argument("--test_iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--skip_val", action="store_true")
 
-    parser.add_argument("--multiview", action="store_true")
-    parser.add_argument("--duration", default=50, type=int)
-    parser.add_argument("--rgbfunction", type=str, default = "rgbv1")
-    parser.add_argument("--rdpip", type=str, default = "v3")
-    parser.add_argument("--valloader", type=str, default = "colmap")
-    parser.add_argument("--configpath", type=str, default = "1")
+    # parser.add_argument("--configpath", type=str, default = "1")
 
-    parser.add_argument("--checkpoint",type=str,default=None) #调用哪个模型去测试
+    parser.add_argument("--iteration",type=str,default="best") #调用哪个模型去测试
     parser.add_argument("--require_segment",default=False,action="store_true") #调用哪个模型去测试
 
 
@@ -133,24 +126,23 @@ def gettestparse():
     # configpath
     safe_state(args.quiet)
     
-    multiview = True if args.valloader.endswith("mv") else False
+    # multiview = True if args.valloader.endswith("mv") else False
 
     #将parser的值覆盖成config的值，但对于parser中没有的值不会新加入
-    print()
-    if os.path.exists(args.configpath) and args.configpath != "None":
-        print("overload config from " + args.configpath)
-        config = json.load(open(args.configpath))
-        for k in config.keys():
-            try:
-                value = getattr(args, k) 
-                newvalue = config[k]
-                setattr(args, k, newvalue)
-            except:
-                print("failed set config: " + k)
-        print("finish load config from " + args.configpath)
-        print("args: " + str(args))
-        # print(args,model.extract(args), pipeline.extract(args), multiview)
-        return args, model.extract(args), pipeline.extract(args)
+    # if os.path.exists(args.configpath) and args.configpath != "None":
+    #     print("overload config from " + args.configpath)
+    #     config = json.load(open(args.configpath))
+    #     for k in config.keys():
+    #         try:
+    #             value = getattr(args, k) 
+    #             newvalue = config[k]
+    #             setattr(args, k, newvalue)
+    #         except:
+    #             print("failed set config: " + k)
+    #     print("finish load config from " + args.configpath)
+    #     print("args: " + str(args))
+    #     # print(args,model.extract(args), pipeline.extract(args), multiview)
+    return args, model.extract(args), pipeline.extract(args)
 
 def getcolmapsinglen3d(folder, offset):
     

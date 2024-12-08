@@ -236,8 +236,8 @@ def get_combined_args(parser : ArgumentParser):
     args_cfgfile = eval(cfgfile_string)
 
     merged_dict = vars(args_cfgfile).copy()
-    print(merged_dict)
-    print("cmd_line",args_cmdline)
+    # print(merged_dict)
+    # print("cmd_line",args_cmdline)
     for k,v in vars(args_cmdline).items():
         if v != None:
             merged_dict[k] = v

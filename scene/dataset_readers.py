@@ -26,7 +26,6 @@ import glob
 import natsort
 from simple_knn._C import distCUDA2
 import torch
-from scene.hyper_loader import Load_hyper_data, format_hyper_data
 from tqdm import tqdm
 
 class CameraInfo(NamedTuple):
@@ -99,9 +98,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, 
 
 
         val_poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
-        print(val_poses[0])
         val_pose = get_spiral(val_poses,near,far,N_views=300)
-        print(val_pose.shape)
 
 
         H, W, focal = poses[0, :, -1]
@@ -127,7 +124,6 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, 
     for i in  range(len(sortedtotalcamelist)):
         sortednamedict[sortedtotalcamelist[i]] = i # map each cam with a number
      
-    print(near,far)
     # c2w_list = []
     for idx, key in enumerate(cam_extrinsics): # first is cam20_ so we strictly sort by camera name
         sys.stdout.write('\r')
@@ -143,7 +139,6 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, near, far, 
         intr = cam_intrinsics[extr.camera_id]
         height = intr.height
         width = intr.width
-        # print(height,width)
         uid = intr.id
         R = np.transpose(qvec2rotmat(extr.qvec))
         T = np.array(extr.tvec)
@@ -220,7 +215,6 @@ def get_spiral(c2ws_all, near,far, rads_scale=1.0, N_views=120):
     dt = 0.75
     # close_depth, inf_depth = near_fars.min() * 0.9, near_fars.max() * 5.0
     close_depth, inf_depth = near * 0.9, far* 5.0
-    print("focal",dt, close_depth, inf_depth, near, far)
     focal = 1.0 / ((1.0 - dt) / close_depth + dt / inf_depth)
 
     # Get radii for spiral path
@@ -445,7 +439,6 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, multiview=False, duratio
         storePly(totalply_path, xyzt, rgb)
     try:
         pcd = fetchPly(totalply_path)
-        print(pcd.points.shape)
     except:
         pcd = None
 

@@ -25,7 +25,7 @@ class Scene:
 
     # gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians, load_iteration=None, shuffle=True, resolution_scales=[1.0], multiview=False,duration=50.0, loader="colmap"):
+    def __init__(self, args : ModelParams, gaussians, load_iteration=None, shuffle=True, resolution_scales=[1.0], multiview=False,duration=50.0, loader="colmap", is_rendering = False):
         """
         :param path: Path to colmap scene main folder.
         """
@@ -39,10 +39,12 @@ class Scene:
         self.all_frame_time_init = False
 
         if load_iteration:
-            if load_iteration == -1:
-                self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
-            else:
-                self.loaded_iter = load_iteration
+            self.loaded_iter = load_iteration
+            # if load_iteration == -1:
+            #     self.loaded_iter = "best"
+            #     # self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
+            # else:
+            #     self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
         self.train_cameras = {}
@@ -51,9 +53,9 @@ class Scene:
         raydict = {}
 
 
-        if loader == "colmap" or loader == "colmapvalid": # colmapvalid only for testing
+        if loader == "colmap" : # colmapvalid only for testing
             self.scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, multiview, duration=duration)
-        elif loader == "blender" or loader == "blendervalid":
+        elif loader == "blender" :
             self.scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, multiview=multiview,duration=duration)
         else:
             assert False, "Could not recognize scene type!"
@@ -86,7 +88,8 @@ class Scene:
 
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")  
-            if loader in ["colmapvalid","blendervalid"]:         
+            if is_rendering:
+            # if loader in ["colmapvalid","blendervalid"]:         
                 self.train_cameras[resolution_scale] = [] # no training data
 
 
@@ -96,12 +99,12 @@ class Scene:
             
             
             print("Loading Test Cameras")
-            if loader  in ["colmapvalid",  "colmap","blender","blendervalid"]: # we need gt for metrics
-                self.test_cameras[resolution_scale] = cameraList_from_camInfosv2(self.scene_info.test_cameras, resolution_scale, args)
-            else:
-                raise NotImplementedError
+            # if loader  in ["colmapvalid",  "colmap","blender","blendervalid"]: # we need gt for metrics
+            self.test_cameras[resolution_scale] = cameraList_from_camInfosv2(self.scene_info.test_cameras, resolution_scale, args)
+            # else:
+            #     raise NotImplementedError
             print("Loading Val Cameras")
-            if loader in ["colmapvalid"]:
+            if loader in ["colmap"] and is_rendering:
                 self.val_cameras[resolution_scale] = cameraList_from_camInfosv2nogt(self.scene_info.val_cameras, resolution_scale, args)
 
 

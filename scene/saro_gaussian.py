@@ -96,7 +96,7 @@ class GaussianModel:
 
         if self.args.planemodel == "scale_aware":
             print("use scale-aware residual field")
-            self.hexplane = ScaleAwareResField(args.bounds, args.kplanes_config, args.multires)
+            self.hexplane = ScaleAwareResField(args.kplanes_config, args.multires)
         else:
             raise NotImplementedError
         hexplane_outdim = self.hexplane.feat_dim
@@ -191,7 +191,6 @@ class GaussianModel:
                 min_scale = self.args.min_interval/(self.duration)
                 lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值
                 self._lifespan = lifespan
-        print(self.hexplane.aabb)
         self.init_mlp_grd()
         if self.args.enable_scale_sum:
             self.init_real_scale()
@@ -468,7 +467,6 @@ class GaussianModel:
                 # lr = self.temporal_pos_scheduler_args(iteration)* self.inv_intergral
                 lr = self.training_args.trbfc_lr * self.inv_intergral
                 param_group['lr'] = lr
-                # print("temporal_pos",lr)
             elif param_group["name"] == "scaling":
                 lr = self.training_args.scaling_lr 
                 if scale_intergral:
@@ -552,7 +550,7 @@ class GaussianModel:
         opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
 
         # temporal_pos= np.asarray(plydata.elements[0]["temporal_pos"])[..., np.newaxis]
-        temporal_pos= np.asarray(plydata.elements[0]["trbf_center"])[..., np.newaxis]
+        temporal_pos= np.asarray(plydata.elements[0]["temporal_pos"])[..., np.newaxis]
 
         features_dc = np.zeros((xyz.shape[0], 3, 1))
         features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
@@ -601,11 +599,7 @@ class GaussianModel:
         self.shs_mlp.load_state_dict({k.replace('shs_', ''): v for k, v in mlp_state_dict['shs_state_dict'].items()})
         self.hexplane.load_state_dict({k.replace('hexplane_', ''): v for k, v in mlp_state_dict['hexplane_state_dict'].items()})
 
-        # print(self.hexplane.state_dict().keys())
-        # self.hexplane = mlp_state_dict["hexplane_state_dict"]
-        # print(mlp_state_dict["hexplane_state_dict"])
-        # print(self.hexplane)
-        # print(self.hexplane.state_dict().keys())
+
         self.motion_mlp.to("cuda")
         self.rot_mlp.to("cuda")
         self.hexplane.to("cuda")
@@ -944,7 +938,7 @@ class GaussianModel:
     
     def set_bounds(self,xyz_max, xyz_min):
         bounds = torch.tensor([xyz_max, xyz_min],dtype=torch.float32,device='cuda')
-        print("set bounds for residual field:", bounds)
+        print("set bounds for residual field")
         self.bounds = nn.Parameter(bounds,requires_grad=False)
         self.hexplane.set_aabb(xyz_max,xyz_min,self.duration)
         
@@ -957,11 +951,8 @@ class GaussianModel:
         return (2*norm_xyz-1) * (self.bounds[0] - self.bounds[1])
 
     def get_deformfeature(self):
-        scales = torch.cat((self.get_scaling.detach(),torch.zeros((self.get_scaling.shape[0],1),device="cuda")),dim=1)
 
-        # scales = torch.cat((self.get_scaling.detach(),self._lifespan.detach()/2),dim=1)
-        # print(scales.shape)
-        self.hexplane_feature = self.hexplane(self._xyz.detach(),self.get_temporalpos.detach(),scales.detach()) #[N,D]
+        self.hexplane_feature = self.hexplane(self._xyz.detach(),self.get_temporalpos.detach(),self.get_scaling.detach()) #[N,D]
         lifespan = 1-self.opacity_mlp(self.hexplane_feature) #得到lifespan
         min_scale = self.args.min_interval/(self.duration)
         lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值

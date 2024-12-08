@@ -149,7 +149,6 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
 
 
     testing_iterations += [i for i in range(opt.densify_until_iter,opt.iterations) if i%500==0]
-    print(testing_iterations)
     while iteration < opt.iterations+1:
         # print(iteration)
         for camindex in loader: #统一使用dataloder
@@ -197,22 +196,22 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                 batch_point_grad = []
                 batch_visibility_filter = []
                 batch_radii = []
-                batch_select_mask = []
+                # batch_select_mask = []
                 # gaussians.get_batch_feature()
                 for idx,viewpoint_cam in enumerate(camindex):
                     render_pkg = render(viewpoint_cam, gaussians, pipe, background,stage=stage)
                     image, viewspace_point_tensor, visibility_filter, radii = getrenderparts(render_pkg) 
                     
-                    select_mask = None #当是bi-flow动态阶段时，valid_mask不是None
-                    if "select_mask" in render_pkg:
-                        select_mask = render_pkg["select_mask"]
-                        batch_select_mask.append(select_mask)
+                    # select_mask = None 
+                    # if "select_mask" in render_pkg:
+                    #     select_mask = render_pkg["select_mask"]
+                    #     batch_select_mask.append(select_mask)
                     gt_image = viewpoint_cam.original_image.float().cuda()
 
                     Ll1 = l1_loss(image, gt_image)
                     loss,loss_dict = getloss(opt, Ll1, ssim, image, gt_image, gaussians,lambda_all)
 
-                    loss.backward() #这里loss一定要在这里backward，否则累计的计算图会爆显存
+                    loss.backward() 
                     batch_point_grad.append(torch.norm(viewspace_point_tensor.grad[:,:2], dim=-1))
 
                     # # batch_point_grad.append(torch.norm(viewspace_point_tensor.grad[:,:2], dim=-1))
@@ -221,8 +220,8 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                     # print(viewspace_point_tensor.grad)
 
 
-                    gaussians.cache_gradient(stage)#把梯度保存下来。针对batch feature,前batch-1次将梯度暂存，在最后一次再将梯度传给batch feature
-                    gaussians.optimizer.zero_grad(set_to_none = True)# 清空梯度
+                    gaussians.cache_gradient(stage)#cache the gradient
+                    gaussians.optimizer.zero_grad(set_to_none = True)
 
 
 
@@ -285,37 +284,20 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                 # Densification and pruning here
                 if iteration < opt.densify_until_iter :
                     if opt.batch>1:
-                        if len(batch_select_mask) >0:
-                            visibility_count = torch.zeros(gaussians.get_xyz.shape[0]).to("cuda")
-                            radii_list = []
-                            batch_viewspace_point_grad = torch.zeros(gaussians.get_xyz.shape[0]).to("cuda")
-                            for idx, select_mask in enumerate(batch_select_mask):
-                                # print(select_mask.shape,visibility_count.shape,batch_visibility_filter[idx].shape)
-                                visibility_count[select_mask] += batch_visibility_filter[idx]
-                                batch_viewspace_point_grad[select_mask] += batch_point_grad[idx]
 
-                                radii = torch.zeros(gaussians.get_xyz.shape[0]).to(batch_radii[idx])
-                                # print(batch_radii[idx].dtype)
-                                radii[select_mask] = batch_radii[idx]
-                                radii_list.append(radii)
-                            radii = torch.stack(radii_list,1).max(1)[0]
-                            visibility_filter = visibility_count > 0
-                        else:
-                            visibility_count = torch.stack(batch_visibility_filter,1).sum(1) #计算batch中每个点的可见总数
-                            visibility_filter = visibility_count > 0
-                            radii = torch.stack(batch_radii,1).max(1)[0]
-                            
-                            batch_viewspace_point_grad = torch.stack(batch_point_grad,1).sum(1)#将grad加起来
+                        visibility_count = torch.stack(batch_visibility_filter,1).sum(1) #计算batch中每个点的可见总数
+                        visibility_filter = visibility_count > 0
+                        radii = torch.stack(batch_radii,1).max(1)[0]
+                        
+                        batch_viewspace_point_grad = torch.stack(batch_point_grad,1).sum(1)#将grad加起来
                         batch_viewspace_point_grad[visibility_filter] = batch_viewspace_point_grad[visibility_filter]  / visibility_count[visibility_filter] #grad除以可见次数，得到batch平均grad
                         batch_viewspace_point_grad = batch_viewspace_point_grad.unsqueeze(1)
 
-                        batch_t_grad = None
 
-                    gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter]) #更新gs在2d情况下的最大半径,这个要写成逐K的
-                    if opt.batch>1:
-                        gaussians.add_densification_stats_grad(batch_viewspace_point_grad, visibility_filter,batch_t_grad) #增加累计梯度
+                        gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter]) #更新gs在2d情况下的最大半径,这个要写成逐K的
+                        gaussians.add_densification_stats_grad(batch_viewspace_point_grad, visibility_filter) #增加累计梯度
                     else:
-                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter) #增加累计梯度
+                        raise NotImplementedError
                 
                 controlgaussians(opt, gaussians, densify, iteration, scene)
               
@@ -343,56 +325,12 @@ def training_report(wd_writer, test_loader,iteration, model_path,train_camname_d
                 'scene/trf_center_mean':scene.gaussians.get_trbfcenter.mean().cpu().item(),
                 'scene/trf_center_std':scene.gaussians.get_trbfcenter.std().cpu().item()
             },step=iteration)
-            #观测前5帧的opacity分布
             select_mask = (scene.gaussians._trbf_center < (5/300)).squeeze()
             wandb.log({
                 # 'scene/first_5_opacity_histogram':wandb.Histogram(scene.gaussians.get_opacity[select_mask].cpu().numpy()),
                 'scene/first_5_points_num':select_mask.sum().item(),
             },step=iteration)
 
-            #对比几个时间段的tgrad
-            # t_grad = scene.gaussians.t_gradient_accum / scene.gaussians.denom
-            # t_grad[t_grad.isnan()] = 0.0
-            # t_grad_1_5 = t_grad[select_mask].mean()
-            # select_mask = (torch.logical_and(scene.gaussians._trbf_center >= (100/300),scene.gaussians._trbf_center < (105/300))).squeeze()
-            # t_grad_100_105= t_grad[select_mask].mean()
-            # select_mask = (torch.logical_and(scene.gaussians._trbf_center >= (200/300),scene.gaussians._trbf_center < (205/300))).squeeze()
-            # t_grad_200_205= t_grad[select_mask].mean()
-
-            # wandb.log({
-            #     'scene/t_grad_1_5':t_grad_1_5.item(),
-            #     'scene/t_grad_100_105':t_grad_100_105.item(),
-            #     'scene/t_grad_200_205':t_grad_200_205.item(),
-            #     'scene/t_grad':wandb.Histogram(t_grad.cpu().numpy()),
-            #     'scene/t_grad_mean':t_grad.mean().item(),
-            # },step=iteration)
-            # if iteration%20 ==0:
-            # #观测scale和xyz_grad的关系
-            #     scale = scene.gaussians.get_trbfscale.cpu().numpy()
-            #     xyz_grad = scene.gaussians.xyz_gradient_accum / scene.gaussians.denom
-            #     xyz_grad[xyz_grad.isnan()] = 0.0
-            #     xyz_grad = xyz_grad.cpu().numpy()
-            #     scale_bins = np.linspace(0.1,1,10)
-            #     xyz_grad_means = [np.mean(xyz_grad[scale >= i -0.1 & scale < i]) for i in scale_bins]
-            #     print(xyz_grad_means)
-            #     if history_data is None:
-            #         history_data = {"scale_keys":[],"xyz_grad_means":[]}
-            #     elif "scale_keys" not in history_data or "xyz_grad_means" not in history_data:
-            #         history_data["scale_keys"] = []
-            #         history_data["xyz_grad_means"] = []
-            #     history_data["scale_keys"].append(iteration)
-            #     history_data["xyz_grad_means"].append(xyz_grad_means)
-            #     wandb.log(
-            #     {
-            #         validation_configs['name'] + '/psnr_perframe': wandb.plot.line_series(
-            #             xs=scale_bins,
-            #             ys=history_data['xyz_grad_means'],
-            #             keys=history_data['scale_keys'],
-            #             title="viewgrad_perscale",
-            #             xname="trbf_scale",
-            #         )
-            #     }
-            # )
 
 
         if loss_dict is not None:
@@ -427,27 +365,12 @@ def training_report(wd_writer, test_loader,iteration, model_path,train_camname_d
                     msssim_test_list = []
                     psnr_test_list=[]
                 for idx,viewpoint in enumerate(tqdm(config['cameras'])):
-                    # viewpoint = batch_data
-                    # for viewpoint in batch_data:
-                        # print(viewpoint.timestamp)
-                        # if iteration not in testing_iterations:
-                        #     viewpoint = validation_configs['cameras'][280]
+
                         gt_image = viewpoint.original_image.float().cuda()
                         viewpoint = viewpoint.cuda()
                         render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs,**renderKwargs )
                         image = torch.clamp(render_pkg["render"], 0.0, 1.0)                
-                        # depth = easy_cmap(render_pkg['depth'][0])
-                        # alpha = torch.clamp(render_pkg['alpha'], 0.0, 1.0).repeat(3,1,1)
 
-                        #这里还是不能代替test，并不能展示全部的图像,且上传非常慢。要么就不显示图像了
-                        # if wd_writer and (idx %1==0):
-                        #     grid = [gt_image, image, depth]
-                        #     grid = make_grid(grid, nrow=2)
-                        #     wandb.log({config['name'] + "_view_{}/gt_vs_render".format(viewpoint.image_name): [wandb.Image(grid, caption="Ground Truth vs. Rendered")]}, step=iteration)
-
-                            # tb_writer.add_images(config['name'] + "_view_{}/gt_vs_render".format(viewpoint.image_name), grid[None], global_step=iteration)
-                        # if config['name'] == 'test':
-                        # print(psnr(image, gt_image).mean())
                         if idx%5==0:
                             #每5张保存一次
                             torchvision.utils.save_image(image, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))

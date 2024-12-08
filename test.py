@@ -32,8 +32,6 @@
 #
 
 import sys 
-sys.path.append("./thirdparty/gaussian_splatting")
-
 import torch
 from scene import Scene
 import os
@@ -183,10 +181,9 @@ def render_set(model_path, name, iteration, views, gaussians, background,require
 
 
 
-def run_test(dataset : ModelParams, ckpt, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_val: bool,require_segment : bool, duration: int,args, loader="colmap"):
+def run_test(dataset : ModelParams, iteration, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_val: bool,require_segment : bool, duration: int,args, loader="colmap"):
     
     with torch.no_grad():
-        print("use model {}".format(dataset.model))
 
         gaussians = GaussianModel(dataset)
         gaussians.duration = args.duration
@@ -195,17 +192,11 @@ def run_test(dataset : ModelParams, ckpt, pipeline : PipelineParams, skip_train 
         if dataset.color_order >0:
             gaussians.color_order = dataset.color_order
         # dataset.use_loader = False
-        scene = Scene(dataset, gaussians, shuffle=False, multiview=False, duration=duration, loader=loader)
+        scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False, multiview=False, duration=duration, loader=loader, is_rendering=True)
 
         background = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda") # use black background
 
-        # (model_params, iteration) = torch.load(ckpt)
-        # print("load at",iteration)
-        gaussians.load_ply(ckpt)
-        # gaussians.restore(model_params, None)
-        # gaussians.save_ply("./flame_steak/ckpt_best.ply")
         gaussians.get_deformfeature()
-        iteration = "best"
         if not skip_test:            
             render_set(dataset.model_path, "test", iteration, scene.getTestCameras(), gaussians, background, require_segment = require_segment, args=args)
         
@@ -215,4 +206,4 @@ if __name__ == "__main__":
     
 
     args, model_extract, pp_extract =gettestparse()
-    run_test(model_extract, args.checkpoint, pp_extract, args.skip_train, args.skip_test,args.skip_val,  args.require_segment, args.duration,  args,loader=args.valloader)
+    run_test(model_extract, args.iteration, pp_extract, args.skip_train, args.skip_test,args.skip_val,  args.require_segment, args.duration,  args,loader=args.loader)

@@ -156,7 +156,6 @@ class ScaleAwareResField(nn.Module):
     def __init__(
         self,
         
-        bounds,
         planeconfig,
         multires
     ) -> None:
@@ -210,9 +209,8 @@ class ScaleAwareResField(nn.Module):
         ],dtype=torch.float32,device="cuda")
         # self.aabb = nn.Parameter(aabb,requires_grad=False)
         self.register_buffer("aabb",aabb)
-        self.duration =duration
-
-        print("Voxel Plane: set aabb=",self.aabb)
+        self.register_buffer("duration",torch.tensor([duration]))
+        # self.duration =duration
 
         self.per_grid_size=[]
         for res in self.reso_list:
@@ -232,7 +230,6 @@ class ScaleAwareResField(nn.Module):
 
     def get_level(self,scales:torch.Tensor):
         #get level for Sx,Sy,Sz 
-        print(self.base_scale.shape, len(self.reso_list[0]))
         min_scale = self.base_scale/2
         max_scale = min_scale*torch.tensor(self.reso_list[0][:3]).to(min_scale)
 
