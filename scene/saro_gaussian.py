@@ -115,91 +115,6 @@ class GaussianModel:
         self.min_intergral = self.args.min_intergral #最小的intergral，小于这个的应该被过滤掉
         self.is_dynamatic = False
 
-    def capture(self):
-        self.opt_dict = self.optimizer.state_dict()
-        attributes = [
-        "active_sh_degree",
-        "_xyz",
-        "_features_dc",
-        "_features_rest",
-        "_scaling",
-        "_rotation",
-        "_opacity",
-        "max_radii2D",
-        "xyz_gradient_accum",
-        "denom",
-        "opt_dict",
-        "spatial_lr_scale",
-        "motion_mlp",
-        "rot_mlp",
-        "opacity_mlp",
-        "shs_mlp" if self.args.dsh else None,
-        "scale_mlp" if self.args.dscale else None,
-        "rgbdecoder" if self.args.rgbdecoder else None,
-        "hexplane",
-        "_motion",
-        "_omega",
-        "_temporal_pos",
-        "_lifespan"
-    ]
-
-    # 动态构建返回值元组
-        return_values = tuple(
-            getattr(self, attr_name)  for attr_name in attributes if attr_name)
-        return return_values
-
-    
-    def restore(self, model_args, training_args):
-        attributes = [
-            ("active_sh_degree", self),
-            ("_xyz", self),
-            ("_features_dc", self),
-            ("_features_rest", self),
-            ("_scaling", self),
-            ("_rotation", self),
-            ("_opacity", self),
-            ("max_radii2D", self),
-            ("xyz_gradient_accum", None),  # 这个属性不是 self 的成员
-            ("denom", None),               # 这个属性不是 self 的成员
-            ("opt_dict", None),            # 这个属性不是 self 的成员
-            ("spatial_lr_scale", self),
-            ("motion_mlp", self),
-            ("rot_mlp", self),
-            ("opacity_mlp", self),
-            ("shs_mlp" if self.args.dsh else None, self),
-            ("scale_mlp" if self.args.dscale else None, self),
-            ("rgbdecoder" if self.args.rgbdecoder else None,self),
-            ("hexplane",self),
-            ("_motion", self),
-            ("_omega", self),
-            ("_temporal_pos", self),
-            ("_lifespan", self)
-        ]
-        local_={}
-        attributes = [attr for attr in attributes[:] if attr[0] is not None]
-        for i, attr in enumerate(attributes):
-            if attr[1] is not None:
-                setattr(attr[1], attr[0], model_args[i])
-            else:
-                local_[attr[0]] = model_args[i]
-
-        if self.is_dynamatic:
-            with torch.no_grad():
-                scales = torch.cat((self.get_scaling,self._lifespan.detach()/2),dim=1)
-                hexplane_feature = self.hexplane(self._xyz,self._temporal_pos ,scales) #[N,D]
-                lifespan = 1-self.opacity_mlp(hexplane_feature) #得到lifespan
-                min_scale = self.args.min_interval/(self.duration)
-                lifespan = (1-min_scale)*lifespan + min_scale #限制min_scale最小值
-                self._lifespan = lifespan
-        self.init_mlp_grd()
-        if self.args.enable_scale_sum:
-            self.init_real_scale()
-        if training_args:#test的适合为None
-            self.training_setup(training_args)
-            self.xyz_gradient_accum = local_["xyz_gradient_accum"]
-            
-            self.denom =  local_["denom"]
-            self.optimizer.load_state_dict(local_["opt_dict"])
 
     @property
     def get_scaling(self):
@@ -246,6 +161,7 @@ class GaussianModel:
             pass
         elif self.preprocesspoints == 3:
             pcd = interpolate_point(pcd, 40) 
+            # Compensating for the Deficiencies in COLMAP's Initial Point Cloud
             pcd = add_extra_point(pcd,5000,100,0)
             pcd = prune_point(pcd,maxz=300)
 
@@ -760,9 +676,7 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacity, new_scaling, new_rotation,new_temporal_pos)
 
 
-        if self.args.enable_scale_sum:
-            new_scale_sum = self.scale_sum[selected_pts_mask].repeat(N,1)/(0.8*N)
-            self.scale_sum = torch.cat((self.scale_sum,new_scale_sum),dim=0)
+
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -787,9 +701,6 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest,new_opacities, new_scaling, new_rotation,new_temporal_pos)
 
 
-        if self.args.enable_scale_sum:
-            new_scale_sum = self.scale_sum[selected_pts_mask]
-            self.scale_sum = torch.cat((self.scale_sum,new_scale_sum),dim=0)
 
     def densify_pruneclone(self, max_grad, min_opacity, extent, max_screen_size, splitN=1):
 
@@ -824,8 +735,7 @@ class GaussianModel:
                 prune_mask = torch.logical_or(prune_mask,  big_points_vs)#only vs
         self.prune_points(prune_mask)
 
-        if self.args.enable_scale_sum:
-            self.init_real_scale()
+
         torch.cuda.empty_cache()
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):

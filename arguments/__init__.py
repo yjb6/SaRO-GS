@@ -104,7 +104,6 @@ class ModelParams(ParamGroup):
         self.min_intergral = 0.1
         self.min_interval =1
         self.enable_coarse2fine = False
-        self.enable_scale_sum = False
         self.rgbdecoder =None
         self.onemlp =False
         # self.add_points = False
@@ -182,7 +181,6 @@ class OptimizationParams(ParamGroup):
         self.emstype = 0
         self.radials = 10.0
         self.farray = 2 # 
-        self.emsstart = 1500 #small for debug,暂时先不用
         self.losstart = 200
         self.saveemppoints = 0 #
         self.prunebysize = 0 
@@ -201,7 +199,7 @@ class OptimizationParams(ParamGroup):
         self.removescale = 5
 
         self.multiview = True
-        self.sametime_batch = True
+        self.sametime_batch = False
         self.keyindex_batch = False #目前默认用上面那个
         self.static_iteration = -1 # -1 静态场景训练结束时间。-1表示直接就是动态的
         self.use_weight_decay = False

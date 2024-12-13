@@ -66,14 +66,10 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
 
 
     scene = Scene(dataset, gaussians, duration=duration, loader=dataset.loader,shuffle=False)
-    print("checkpoint:",checkpoint)
+    
     if checkpoint:
         gaussians.load_ply(checkpoint)
-        # (model_params, first_iter) = torch.load(checkpoint)
 
-        # if first_iter > opt.static_iteration:#已经进行过转换了
-        #     gaussians.is_dynamatic = True
-        # gaussians.restore(model_params, opt)
 
     gaussians.training_setup(opt)
 
@@ -181,6 +177,7 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                     else:
                         use_intergral =True
                 if iteration > opt.densify_until_iter:
+                    #To ensure stability, adaptive optimization of the scale will no longer be performed.
                     scale_intergral= False
                 else:
                     scale_intergral = True
@@ -269,9 +266,6 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                             
                             print("\n[ITER {}] Saving best checkpoint".format(iteration))
                             scene.save(iteration,best_ckpt=True)
-                            # save_path = os.path.join(scene.model_path + "/point_cloud/chkpnt_best.pth")
-                            # mkdir_p(os.path.dirname(save_path))
-                            # torch.save((gaussians.capture(), iteration), save_path)
             
                 #save
                 if (iteration in saving_iterations):
@@ -294,7 +288,7 @@ def train(dataset, opt, pipe, saving_iterations,testing_iterations, debug_from,s
                         batch_viewspace_point_grad = batch_viewspace_point_grad.unsqueeze(1)
 
 
-                        gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter]) #更新gs在2d情况下的最大半径,这个要写成逐K的
+                        gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter]) #update the max raddi in 2D space
                         gaussians.add_densification_stats_grad(batch_viewspace_point_grad, visibility_filter) #增加累计梯度
                     else:
                         raise NotImplementedError

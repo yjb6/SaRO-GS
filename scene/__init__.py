@@ -125,9 +125,9 @@ class Scene:
     
     def save(self, iteration,best_ckpt=False):
         if best_ckpt:
-            save_path = os.path.join(self.model_path, "point_cloud/best_ckpt.ply".format(iteration))
+            save_path = os.path.join(self.model_path, "point_cloud/iteration_best/point_cloud.ply".format(iteration))
         else:
-            save_path = os.path.join(self.model_path, "point_cloud/iteration_{}.ply".format(iteration))
+            save_path = os.path.join(self.model_path, "point_cloud/iteration_{}/point_cloud.ply".format(iteration))
         mkdir_p(os.path.dirname(save_path))
         self.gaussians.save_ply(save_path)
 

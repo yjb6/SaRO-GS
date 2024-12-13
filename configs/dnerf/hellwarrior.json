@@ -1,8 +1,6 @@
 {
   "resolution": 2,
   "dataset": "hellwarrior",
-  "source_path": "../datasets/dnerf/hellwarrior/",
-  "model": "flow_mlp_hexplane_opacity_st_2",
   "scaling_lr": 0.003,
 
   "preprocesspoints": 0,
@@ -11,11 +9,8 @@
   "test_iteration": 20001,
   "densify": 5,
   "duration": 100,
-  "rdpip": "train_ours_flow_mlp_opacity",
-  "rgbfunction": "sandwich",
   "loader": "blender",
   "densify_until_iter": 15000,
-  "emsstart": 40001,
   "use_weight_decay": true,
   "densify_from_iter" :500,
   "densification_interval" : 100,
@@ -39,10 +34,8 @@
     "resolution": [64, 64, 64, 128]
   },
   "multires":[1],
-  "valloader": "blendervalid",
-  "use_loader":true,
+  "use_loader":false,
   "batch":4,
-  "sametime_batch":false,
 
   "lambda_dtstd" :0,
   "lambda_dl1_opacity" : 0,
@@ -53,29 +46,23 @@
   "lambda_dshs_reg":0,
   "lambda_dmotion_reg":0,
 
-  "iterations":30000,
+  "iterations":20000,
   "dsh":true,
   "use_shs":true,
   "min_intergral":0.0025,
   "min_interval":0.5,
-  "dscale":false,
-  "enable_scale_sum":false,
-  "scale_rot":true,
+
 
   "scale_reg":true,
   "shs_reg":false,
   "motion_reg":false,
 
-  "onemlp":false,
 
   "trbfc_lr":1e-6,
   "sigmoid_tcenter":false,
-  "planemodel":"hexplane_mip",
+  "planemodel":"scale_aware",
 
   "use_intergral_afterdensify":false,
-  "pw":false
-
-
-
-
+  "pw":false,
+  "static_iteration":1000
 }
