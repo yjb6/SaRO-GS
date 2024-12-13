@@ -1,7 +1,7 @@
 # SaRO-GS:4D Gaussian Splatting with Scale-aware Residual Field and Adaptive Optimization for Real-time Rendering of Temporally Complex Dynamic Scenes
 
 >Jinbo Yan, Rui Peng, Luyang Tang, Ronggang Wang<br>
->[Arxiv](https://arxiv.org/pdf/2412.06299)|[Webpage](https://yjb6.github.io/SaRO-GS.github.io/)|[Weights](https://drive.google.com/drive/folders/1YiM7q5zykeMhgvDjduYg3Ji_gBCBPqVO?usp=drive_link)<br>
+>[Arxiv](https://arxiv.org/pdf/2412.06299)|[Webpage](https://yjb6.github.io/SaRO-GS.github.io/)|[Weights](https://drive.google.com/drive/folders/1d-gjkWyYEMzUtTHGVITMhuH7jN6TFlwD?usp=drive_link)<br>
 > *ACM MM 2024 __Best__ __Paper__ __Candidate__* 
 
 This repository contains the official authors implementation associated with the paper __4D Gaussian Splatting with Scale-aware Residual Field and Adaptive Optimization for Real-time Rendering of Temporally Complex Dynamic Scenes__
@@ -56,7 +56,7 @@ To test the model, use the following command:
 - use the --skip_val flag to skip the free view rendering
 
 ### Pretrained Weights
-You can download the pre-trained weights of Neural3D dataset from [here](https://drive.google.com/drive/folders/1WWGftpqdLMPZ6-i-uRhmTCMgI-x2NO9d?usp=drive_link), and then place them under the project directory.
+You can download the pre-trained weights of Neural3D dataset from [here](https://drive.google.com/drive/folders/1d-gjkWyYEMzUtTHGVITMhuH7jN6TFlwD?usp=drive_link), and then place them under the project directory.
 ```
 <logs>
 │   |--- flame_steak
