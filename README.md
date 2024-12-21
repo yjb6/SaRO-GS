@@ -74,4 +74,4 @@ To train the model by your own, use the following command:
 - use the --no_wandb flag to disable wandb.
 
 ## Thanks
-Our code is based on (SpacetimeGS)[https://github.com/oppo-us-research/SpacetimeGaussians] and [3DGS](https://github.com/graphdeco-inria/gaussian-splatting).
+Our code is based on [SpacetimeGS](https://github.com/oppo-us-research/SpacetimeGaussians) and [3DGS](https://github.com/graphdeco-inria/gaussian-splatting).
