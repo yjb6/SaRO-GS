@@ -10,7 +10,7 @@
   "densify": 2,
   "duration": 300,
   "loader": "colmap",
-  "densify_until_iter": 11000,
+  "densify_until_iter": 10000,
   "use_weight_decay": true,
   "densify_from_iter" :500,
   "densification_interval" : 100,
