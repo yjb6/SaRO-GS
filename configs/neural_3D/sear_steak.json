@@ -55,7 +55,7 @@
 
     "trbfc_lr":1e-4,
     "sigmoid_tcenter":false,
-    "planemodel":"hexplane_mip",
+    "planemodel":"scale_aware",
 
     "use_intergral_afterdensify":false
   }
